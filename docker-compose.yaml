@@ -1,0 +1,11 @@
+services:
+  nginx:
+    image: nginx:latest
+    container_name: main-nginx
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./sites:/etc/nginx/conf.d:ro
+      - ./certs:/etc/nginx/certs:ro
