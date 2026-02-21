@@ -5,7 +5,7 @@ NETWORK_NAME = shared_network
 .PHONY: build down rebuild logs ps
 
 build: create-network
-	docker compose --env-file .env -f $(COMPOSE_BASE) up --build -d --remove-orphans
+	docker compose --env-file .env -f $(COMPOSE_BASE) up --build -d --remove-orphans --volumes
 
 down:
 	docker compose --env-file .env -f $(COMPOSE_BASE) down
