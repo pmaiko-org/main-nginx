@@ -1,6 +1,6 @@
 services:
   nginx:
-    image: nginx:latest
+    image: ghcr.io/cloudflare/nginx-quic:mainline
     container_name: main-nginx
     restart: always
     ports:
