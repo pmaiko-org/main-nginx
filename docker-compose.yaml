@@ -1,7 +1,6 @@
 services:
   nginx:
-#    image: nginx:latest
-    build: .
+    image: dasskelett/nginx-quic:1.29.4
     container_name: main-nginx
     restart: always
     ports:
