@@ -1,6 +1,8 @@
 # main-nginx
 ```
 sudo apt install certbot
+/etc/letsencrypt/live
+/home/petya/actions-runner/_work/main-nginx/main-nginx
 sudo certbot certonly   --webroot -w ./sites/quizpet   -d quizpet.mooo.com -d www.quizpet.mooo.com
 ```
 
