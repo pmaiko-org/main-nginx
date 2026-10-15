@@ -1,3 +1,9 @@
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "3"
+
 services:
   nginx:
     image: dasskelett/nginx-quic:1.29.5
@@ -17,6 +23,8 @@ services:
       - /var/lib/letsencrypt:/var/lib/letsencrypt:rw
     networks:
       - shared_network
+      - monitoring_network
+    logging: *default-logging
 
   netdata:
     image: netdata/netdata:v2.12.1
@@ -44,7 +52,8 @@ services:
       - /run/dbus:/run/dbus:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
-      - shared_network
+      - monitoring_network
+    logging: *default-logging
 
   portainer:
     image: portainer/portainer-ce:2.45.2-alpine
@@ -61,11 +70,15 @@ services:
       - portainer-data:/data
       - /var/run/docker.sock:/var/run/docker.sock
     networks:
-      - shared_network
+      - monitoring_network
+    logging: *default-logging
 
 networks:
   shared_network:
     external: true
+  monitoring_network:
+    name: main-monitoring_network
+    driver: bridge
 
 volumes:
   netdata-config:
