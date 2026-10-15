@@ -495,15 +495,21 @@ docker volume rm main-nginx-portainer-data
 
 ### Перший вхід у Portainer
 
-Portainer вимагає задати пароль адміністратора протягом **5 хвилин** після першого запуску. Якщо не встигнути, контейнер треба перезапустити:
+Під час першого запуску Portainer друкує в лог **setup token** — без нього екран створення адміністратора не відкриється:
+
+```bash
+docker compose logs portainer | grep setup_token
+```
+
+Відкрити `https://quizpet.mooo.com/portainer/`, вставити токен і створити адміністратора.
+
+Токен діє, доки адміністратора не створено. Якщо лог уже перекрутився, перезапустити контейнер — Portainer згенерує новий:
 
 ```bash
 docker compose restart portainer
 ```
 
-Після цього відкрити `https://quizpet.mooo.com/portainer/` і створити адміністратора.
-
-Portainer запускається з прапорцем `--base-url /portainer`, а Nginx зрізає цей префікс перед проксуванням — цього вимагає офіційна документація Portainer.
+Portainer запускається з прапорцем `--base-url /portainer`, а Nginx зрізає цей префікс перед проксуванням — цього вимагає офіційна документація Portainer. Сам Portainer при цьому слухає HTTP на порту `9000` (увімкнений за замовчуванням) і HTTPS на `9443`; назовні не публікується жоден із них.
 
 Якщо під час входу з'являється помилка `Origin invalid`, домен не збігається з `--trusted-origins`. Значення береться з `.env`:
 
@@ -521,7 +527,6 @@ PORTAINER_TRUSTED_ORIGINS=https://quizpet.mooo.com
 |---|---|---|
 | `NETDATA_HOSTNAME` | Ім'я вузла в дашборді Netdata | `main-nginx` |
 | `PORTAINER_TRUSTED_ORIGINS` | Домени, з яких дозволено вхід у Portainer | `https://quizpet.mooo.com` |
-| `PORTAINER_TRUSTED_PROXIES` | Підмережа Nginx для визначення реального IP | `172.16.0.0/12` |
 
 ### Доступ до Docker-сокета
 

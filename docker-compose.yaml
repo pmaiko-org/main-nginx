@@ -57,8 +57,6 @@ services:
       - /portainer
       - --trusted-origins
       - ${PORTAINER_TRUSTED_ORIGINS:-https://quizpet.mooo.com}
-      - --trusted-proxies
-      - ${PORTAINER_TRUSTED_PROXIES:-172.16.0.0/12}
     volumes:
       - portainer-data:/data
       - /var/run/docker.sock:/var/run/docker.sock
