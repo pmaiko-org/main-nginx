@@ -416,6 +416,147 @@ sudo systemctl disable github-runner.service
 
 ---
 
+## Моніторинг: Netdata та Portainer
+
+Обидва сервіси описані в `docker-compose.yaml`, працюють у мережі `shared_network` і **не публікують жодного порту назовні**. Єдиний шлях до них — через Nginx:
+
+```text
+https://quizpet.mooo.com/netdata/     — дашборд Netdata (під basic-auth)
+https://quizpet.mooo.com/portainer/   — Portainer (власна авторизація)
+```
+
+Location-блоки лежать у `snippets/monitoring.conf` і підключаються одним рядком усередині HTTPS-сервера в `sites-enabled/quizpet.conf`:
+
+```nginx
+include /etc/nginx/snippets/monitoring.conf;
+```
+
+Щоб перенести моніторинг на інший домен, достатньо перенести цей `include` до іншого файлу в `sites-enabled/`.
+
+### Basic-auth для Netdata
+
+У Netdata немає власної авторизації, тому шлях `/netdata/` закритий basic-auth у Nginx. Файл із паролями:
+
+```text
+secrets/.htpasswd
+```
+
+Каталог `secrets/` у `.gitignore` — файл ніколи не потрапляє до репозиторію.
+
+Створити користувача (команда працює і локально, і на VPS, `apache2-utils` не потрібен):
+
+```bash
+make htpasswd HTPASSWD_USER=petya
+```
+
+Команда дописує рядок у `secrets/.htpasswd`. Щоб замінити всіх користувачів, спочатку видаліть файл.
+
+Постійна копія на VPS лежить поза робочим каталогом runner'а, поруч із `.env`:
+
+```text
+/home/petya/projects/main-nginx/.htpasswd
+```
+
+GitHub Actions копіює її в `secrets/.htpasswd` під час кожного деплою — так само, як `.env`. Створити її один раз на сервері:
+
+```bash
+cd /home/petya/projects/main-nginx
+read -rsp 'Password: ' password && echo
+printf '%s' "$password" | docker run --rm -i httpd:2.4-alpine htpasswd -niB petya | sed '/^$/d' >> .htpasswd
+unset password
+```
+
+`make build` падає з явною помилкою, якщо файл відсутній або порожній, — Nginx не стартує з незахищеним дашбордом.
+
+### Дані, що переживають деплой
+
+`make down` виконується з прапорцем `--volumes`, тому дані Portainer (адмін-акаунт, налаштування) і бази Netdata зберігаються в **зовнішніх** томах — Docker Compose їх не видаляє:
+
+```text
+main-nginx-portainer-data
+main-nginx-netdata-config
+main-nginx-netdata-lib
+main-nginx-netdata-cache
+```
+
+Томи створює `make create-volumes` — він викликається автоматично з `make build`, так само як `create-network`.
+
+Переглянути томи:
+
+```bash
+make list-volumes
+```
+
+Видалити дані Portainer можна лише вручну:
+
+```bash
+docker volume rm main-nginx-portainer-data
+```
+
+### Перший вхід у Portainer
+
+Portainer вимагає задати пароль адміністратора протягом **5 хвилин** після першого запуску. Якщо не встигнути, контейнер треба перезапустити:
+
+```bash
+docker compose restart portainer
+```
+
+Після цього відкрити `https://quizpet.mooo.com/portainer/` і створити адміністратора.
+
+Portainer запускається з прапорцем `--base-url /portainer`, а Nginx зрізає цей префікс перед проксуванням — цього вимагає офіційна документація Portainer.
+
+Якщо під час входу з'являється помилка `Origin invalid`, домен не збігається з `--trusted-origins`. Значення береться з `.env`:
+
+```dotenv
+PORTAINER_TRUSTED_ORIGINS=https://quizpet.mooo.com
+```
+
+Можна вказати кілька доменів через кому, обов'язково зі схемою `https://`.
+
+### Змінні оточення
+
+Шаблон — `.env.example`. Актуальний `.env` зберігається на VPS за шляхом `/home/petya/projects/main-nginx/.env` і копіюється під час деплою.
+
+| Змінна | Призначення | Типове значення |
+|---|---|---|
+| `NETDATA_HOSTNAME` | Ім'я вузла в дашборді Netdata | `main-nginx` |
+| `PORTAINER_TRUSTED_ORIGINS` | Домени, з яких дозволено вхід у Portainer | `https://quizpet.mooo.com` |
+| `PORTAINER_TRUSTED_PROXIES` | Підмережа Nginx для визначення реального IP | `172.16.0.0/12` |
+
+### Доступ до Docker-сокета
+
+Portainer монтує `/var/run/docker.sock` на запис — без цього він не керуватиме контейнерами. Netdata монтує той самий сокет у режимі `ro`, щоб збирати метрики контейнерів. Це означає, що доступ до Portainer фактично дорівнює root-доступу на VPS, тому пароль адміністратора має бути сильним.
+
+### Мережеві метрики Netdata
+
+Netdata працює в bridge-мережі, а не в `network_mode: host`. Так дашборд недоступний ззовні в обхід basic-auth, але метрики мережевих інтерфейсів показують інтерфейси контейнера, а не хоста. CPU, пам'ять, диски, процеси й логи читаються з хоста через змонтовані `/proc`, `/sys`, `/host/root` і `/var/log`.
+
+### Перевірка після деплою
+
+```bash
+make ps
+```
+
+```bash
+make check-config
+```
+
+```bash
+curl -I -u petya https://quizpet.mooo.com/netdata/
+```
+
+```bash
+curl -I https://quizpet.mooo.com/portainer/
+```
+
+Перечитати конфігурацію Nginx без перезапуску контейнера:
+
+```bash
+make reload
+```
+
+---
+
 ## HTTP/3
 
 Матеріали:
@@ -510,4 +651,8 @@ curl -I http://quizpet.mooo.com
 
 ```bash
 curl -I --http3 https://quizpet.mooo.com
+```
+
+```
+cd /home/petya/projects/main-nginx && read -rsp 'Password: ' password && echo && printf '%s' "$password" | docker run --rm -i httpd:2.4-alpine htpasswd -niB petya | sed '/^$/d' >> .htpasswd && unset password
 ```

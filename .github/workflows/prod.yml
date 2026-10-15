@@ -16,5 +16,10 @@ jobs:
       - name: Copy .env from server
         run: cp /home/petya/projects/main-nginx/.env .env
 
+      - name: Copy basic auth file from server
+        run: |
+          mkdir -p secrets
+          cp /home/petya/projects/main-nginx/.htpasswd secrets/.htpasswd
+
       - name: Run make build
         run: make build
