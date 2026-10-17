@@ -4,6 +4,8 @@ VOLUME_NAMES = \
 	main-nginx-netdata-config \
 	main-nginx-netdata-lib \
 	main-nginx-netdata-cache \
+	main-nginx-netdata-log \
+	main-nginx-otelcol-data \
 	main-nginx-portainer-data
 HTPASSWD_FILE = secrets/.htpasswd
 

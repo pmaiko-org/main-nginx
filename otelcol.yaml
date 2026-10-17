@@ -1,0 +1,69 @@
+extensions:
+  docker_observer:
+    endpoint: unix:///var/run/docker.sock
+    include_all_containers: true
+
+  file_storage/otelcol:
+    directory: /var/lib/otelcol/storage
+    create_directory: true
+
+receivers:
+  receiver_creator/docker:
+    watch_observers:
+      - docker_observer
+    receivers:
+      file_log:
+        rule: type == "container" && port == 0 && name != "main-otelcol"
+        config:
+          include:
+            - /var/lib/docker/containers/`container_id`/*-json.log
+          include_file_path: true
+          start_at: end
+          storage: file_storage/otelcol
+          operators:
+            - type: container
+              format: docker
+              add_metadata_from_filepath: false
+        resource_attributes:
+          service.name: '`name`'
+
+processors:
+  memory_limiter:
+    check_interval: 5s
+    limit_mib: 256
+    spike_limit_mib: 64
+
+  batch:
+    timeout: 5s
+    send_batch_size: 1000
+    send_batch_max_size: 2000
+
+exporters:
+  otlp_grpc/netdata:
+    endpoint: main-netdata:4317
+    tls:
+      insecure: true
+    retry_on_failure:
+      enabled: true
+    sending_queue:
+      enabled: true
+      storage: file_storage/otelcol
+      sizer: items
+      queue_size: 50000
+
+service:
+  extensions:
+    - docker_observer
+    - file_storage/otelcol
+  pipelines:
+    logs:
+      receivers:
+        - receiver_creator/docker
+      processors:
+        - memory_limiter
+        - batch
+      exporters:
+        - otlp_grpc/netdata
+  telemetry:
+    logs:
+      level: warn

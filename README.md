@@ -536,6 +536,82 @@ Portainer монтує `/var/run/docker.sock` на запис — без цьо�
 
 Netdata працює в bridge-мережі, а не в `network_mode: host`. Так дашборд недоступний ззовні в обхід basic-auth, але метрики мережевих інтерфейсів показують інтерфейси контейнера, а не хоста. CPU, пам'ять, диски, процеси й логи читаються з хоста через змонтовані `/proc`, `/sys`, `/host/root` і `/var/log`.
 
+### Логи контейнерів у Netdata
+
+Netdata показує логи лише з двох джерел: systemd journal і власний OTLP-приймач. Контейнери пишуть у `json-file` (`/var/lib/docker/containers/<id>/<id>-json.log`), тож ні там, ні там їх немає — вкладка Logs була б порожньою.
+
+Міст між ними — сервіс `otelcol` (OpenTelemetry Collector Contrib). Ланцюжок такий:
+
+```text
+docker_observer → file_log на кожен контейнер → оператор container → OTLP/gRPC → main-netdata:4317
+```
+
+- `docker_observer` стежить за Docker API і повідомляє про кожен запущений контейнер (`include_all_containers: true`, бо контейнери без відкритих портів інакше не потрапляють у список);
+- `receiver_creator` піднімає окремий `file_log` на json-лог кожного контейнера — шлях містить лише id, тому ім'я береться з Docker API і кладеться в `service.name`;
+- оператор `container` розбирає формат json-file: `log` → тіло запису, `time` → час, `stream` → атрибут `log.iostream`.
+
+Конфігурація — `otelcol.yaml` у корені репозиторію.
+
+**Де дивитися:** вкладка **Logs** → джерело `otel-logs` → селектор **Services**, у якому імена контейнерів (`main-nginx`, `quizpet-backend`, …).
+
+#### Приймач OTLP у Netdata
+
+Плагін `otel` увімкнений за замовчуванням, але слухає `127.0.0.1:4317` — із сусіднього контейнера туди не достукатися. Тому в `docker-compose.yaml` задано:
+
+```yaml
+NETDATA_OTEL_CFG_ENDPOINT_PATH: 0.0.0.0:4317
+```
+
+Ім'я змінної — це шлях у `otel.yaml` (`endpoint.path`) великими літерами з префіксом `NETDATA_OTEL_CFG_`. **Невідоме ім'я плагін не ігнорує — він падає з помилкою і не приймає нічого.** Побачити стокову схему:
+
+```bash
+docker compose exec netdata cat /etc/netdata/orig/otel.yaml
+```
+
+Порт `4317` назовні не публікується: він доступний лише контейнерам у `monitoring_network`, тому без TLS і без автентифікації.
+
+#### Томи й зберігання
+
+| Том | Навіщо |
+| --- | --- |
+| `main-nginx-netdata-log` | `/var/log/netdata` — тут плагін тримає прийняті логи (`otel/v2`); без тому вони зникали б при кожному `make build` |
+| `main-nginx-otelcol-data` | позиції читання файлів і черга відправки коллектора |
+
+На VPS лише 30 ГБ, тому дефолтні ліміти урізані:
+
+| Що | Дефолт | У нас | Де задано |
+| --- | --- | --- | --- |
+| Логи в Netdata | 1 ГБ / 7 днів | 512 МБ / 3 дні | `NETDATA_OTEL_CFG_LOGS_RETENTION_MAX_TOTAL_SIZE`, `..._MAX_AGE` |
+| Трейси в Netdata | 1 ГБ | 128 МБ | `NETDATA_OTEL_CFG_TRACES_RETENTION_MAX_TOTAL_SIZE` |
+| Черга коллектора | 1000 запитів (до 2 млн записів) | 50 000 записів | `sending_queue` в `otelcol.yaml` |
+| json-файли Docker | — | 10 МБ × 3 на контейнер | `x-logging` у compose кожного проєкту |
+
+Ліміт ретеншну не покриває WAL, каталог і кеш — вони йдуть понад нього, тож реальна стеля близько 700 МБ. Ротація файлу — 25 МБ. Netdata приймає записи не старші за добу і не більш ніж на 10 хвилин у майбутньому; решту відхиляє. При переповненні черги коллектор відкидає зайве і пише про це у свій лог.
+
+Одні й ті самі рядки лежать двічі: у json-файлі контейнера і в сховищі Netdata. Коллектор файли лише читає й ніколи не видаляє.
+
+Імена змінних повторюють шлях у `otel.yaml`, але рівень `default` у них пропускається: `logs.retention.default.max_age` → `NETDATA_OTEL_CFG_LOGS_RETENTION_MAX_AGE`. Повний перелік підтримуваних імен можна дістати з бінарника:
+
+```bash
+docker compose exec netdata sh -c 'grep -ao "NETDATA_OTEL_CFG[A-Z_]*" /usr/libexec/netdata/plugins.d/otel-plugin | sort -u'
+```
+
+#### Доступи коллектора
+
+Контейнер працює від root і монтує `/var/lib/docker/containers` та `docker.sock` у режимі `ro` — інакше не прочитає чужі логи й не побачить списку контейнерів. Власні логи коллектор не читає (умова `name != "main-otelcol"` у правилі), щоб не закільцювати потік.
+
+#### Перевірка
+
+```bash
+docker compose logs otelcol | tail -20
+```
+
+```bash
+docker compose exec netdata ls /var/log/netdata/otel/v2/logs/wal/default
+```
+
+Порожній каталог WAL означає, що до Netdata не дійшло жодного запису — шукати причину в логах `otelcol`.
+
 ### Перевірка після деплою
 
 ```bash

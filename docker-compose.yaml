@@ -32,6 +32,11 @@ services:
     restart: always
     hostname: ${NETDATA_HOSTNAME:-main-nginx}
     pid: host
+    environment:
+      NETDATA_OTEL_CFG_ENDPOINT_PATH: 0.0.0.0:4317
+      NETDATA_OTEL_CFG_LOGS_RETENTION_MAX_TOTAL_SIZE: 512MB
+      NETDATA_OTEL_CFG_LOGS_RETENTION_MAX_AGE: 3days
+      NETDATA_OTEL_CFG_TRACES_RETENTION_MAX_TOTAL_SIZE: 128MB
     cap_add:
       - SYS_PTRACE
       - SYS_ADMIN
@@ -41,6 +46,7 @@ services:
       - netdata-config:/etc/netdata
       - netdata-lib:/var/lib/netdata
       - netdata-cache:/var/cache/netdata
+      - netdata-log:/var/log/netdata
       - /:/host/root:ro,rslave
       - /etc/passwd:/host/etc/passwd:ro
       - /etc/group:/host/etc/group:ro
@@ -50,6 +56,24 @@ services:
       - /sys:/host/sys:ro
       - /var/log:/host/var/log:ro
       - /run/dbus:/run/dbus:ro
+      - /var/run/docker.sock:/var/run/docker.sock:ro
+    networks:
+      - monitoring_network
+    logging: *default-logging
+
+  otelcol:
+    image: otel/opentelemetry-collector-contrib:0.157.0
+    container_name: main-otelcol
+    restart: always
+    user: "0:0"
+    command:
+      - --config=/etc/otelcol/config.yaml
+    depends_on:
+      - netdata
+    volumes:
+      - ./otelcol.yaml:/etc/otelcol/config.yaml:ro
+      - otelcol-data:/var/lib/otelcol
+      - /var/lib/docker/containers:/var/lib/docker/containers:ro
       - /var/run/docker.sock:/var/run/docker.sock:ro
     networks:
       - monitoring_network
@@ -90,6 +114,12 @@ volumes:
   netdata-cache:
     external: true
     name: main-nginx-netdata-cache
+  netdata-log:
+    external: true
+    name: main-nginx-netdata-log
+  otelcol-data:
+    external: true
+    name: main-nginx-otelcol-data
   portainer-data:
     external: true
     name: main-nginx-portainer-data
