@@ -13,7 +13,7 @@ receivers:
       - docker_observer
     receivers:
       file_log:
-        rule: type == "container" && port == 0 && name != "main-otelcol"
+        rule: type == "container" && port == 0 && name not in ["main-otelcol", "main-netdata", "main-portainer"]
         config:
           include:
             - /var/lib/docker/containers/`container_id`/*-json.log
